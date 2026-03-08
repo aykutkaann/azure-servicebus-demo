@@ -37,7 +37,7 @@ resource "azurerm_servicebus_queue" "queue" {
 ## ACR
 
 resource "azurerm_container_registry" "acr" {
-    name = var.acr.name
+    name = "acreventdrivendemo"
     resource_group_name = azurerm_resource_group.rg.name
     location = azurerm_resource_group.rg.location
     sku = "Basic"
