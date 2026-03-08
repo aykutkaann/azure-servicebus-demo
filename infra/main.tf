@@ -1,47 +1,51 @@
 terraform {
-    required_providers {
-        azurerm = {
-            source = "hashicorp/azurerm"
-            version = "~> 3.0"
-        }
+  
+  backend "azurerm" {
+    resource_group_name  = "rg-eventdriven-demo"
+    storage_account_name = "tfstateeventdriven"
+    container_name       = "tfstate"
+    key                  = "terraform.tfstate"
+  }
+
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "~> 3.0"
     }
+  }
 }
 
 provider "azurerm" {
-    features {}
+  features {}
 }
 
-##Resource Group
-
+# Resource Group
 resource "azurerm_resource_group" "rg" {
-    name = var.resource_group_name
-    location = var.location
+  name     = var.resource_group_name
+  location = var.location
 }
 
-##ServiceBus Namespace
-
+# Service Bus Namespace
 resource "azurerm_servicebus_namespace" "sb" {
-    name = var.servicebus_namespace
-    location = azurerm_resource_group.rg.location
-    resource_group_name = azurerm_resource_group.rg.name
-    sku = "Standard"
+  name                = var.servicebus_namespace
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+  sku                 = "Standard"
 }
 
-## Service Bus Queue
-
+# Service Bus Queue
 resource "azurerm_servicebus_queue" "queue" {
-    name = var.servicebus_queue
-    namespace_id = azurerm_servicebus_namespace.sb.id
+  name         = var.servicebus_queue
+  namespace_id = azurerm_servicebus_namespace.sb.id
 }
 
-## ACR
-
+# Azure Container Registry
 resource "azurerm_container_registry" "acr" {
-    name = "acreventdrivendemo"
-    resource_group_name = azurerm_resource_group.rg.name
-    location = azurerm_resource_group.rg.location
-    sku = "Basic"
-    admin_enabled = true
+  name                = var.acr_name
+  resource_group_name = azurerm_resource_group.rg.name
+  location            = azurerm_resource_group.rg.location
+  sku                 = "Basic"
+  admin_enabled       = true
 }
 
 # Log Analytics Workspace

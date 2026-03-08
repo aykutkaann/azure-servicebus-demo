@@ -6,28 +6,27 @@ on:
       - main
 
 jobs:
-
-## IaC with Terraform
-
   infrastructure:
-    name: Terraform
+    name: 🏗️ setup  Terraform
     runs-on: ubuntu-latest
 
     steps:
-      - name: Kodu indir
+      - name: Download code
         uses: actions/checkout@v3
 
-      - name: Azure'a giriş yap
+      - name: Login azure
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Terraform kur
+      - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
 
       - name: Terraform init
         working-directory: infra/
-        run: terraform init
+        run: |
+          terraform init \
+            -backend-config="access_key=${{ secrets.AZURE_STORAGE_KEY }}"
 
       - name: Terraform plan
         working-directory: infra/
@@ -37,19 +36,16 @@ jobs:
         working-directory: infra/
         run: terraform apply -auto-approve
 
-
-## Docker Image Build And Push
-
   build-and-push:
     name: 🐳 Image Build & Push
     runs-on: ubuntu-latest
-    needs: infrastructure  
+    needs: infrastructure
 
     steps:
       - name: Download code
         uses: actions/checkout@v3
 
-      - name: Login Azure
+      - name: Login azure
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
@@ -57,47 +53,58 @@ jobs:
       - name: Login ACR
         run: az acr login --name ${{ secrets.ACR_NAME }}
 
-      - name: Build image & push 
+      - name: Build and push image
         run: |
           docker build -t ${{ secrets.ACR_NAME }}.azurecr.io/message-processor:${{ github.sha }} ./app
           docker push ${{ secrets.ACR_NAME }}.azurecr.io/message-processor:${{ github.sha }}
 
-# JOB 3 — Container Apps Job Deploy
-
   deploy:
-    name: 🚀 Job Deploy 
+    name: 🚀 Deploy Job
     runs-on: ubuntu-latest
-    needs: build-and-push 
+    needs: build-and-push
 
     steps:
-      - name: Login Azure
+      - name: Login azure
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Update Container Apps Job 
+      - name: Create or update Container Apps Job
         run: |
-          az containerapp job create \
+          JOB_EXISTS=$(az containerapp job show \
             --name job-message-processor \
             --resource-group rg-eventdriven-demo \
-            --environment cae-eventdriven-demo \
-            --trigger-type Event \
-            --replica-timeout 300 \
-            --replica-retry-limit 3 \
-            --min-executions 0 \
-            --max-executions 10 \
-            --polling-interval 30 \
-            --scale-rule-name "servicebus-scaler" \
-            --scale-rule-type "azure-servicebus" \
-            --scale-rule-metadata "queueName=order-processing-queue" "namespace=sb-eventdriven-demo" "messageCount=5" \
-            --scale-rule-auth "connection=sb-connection" \
-            --image "${{ secrets.ACR_NAME }}.azurecr.io/message-processor:${{ github.sha }}" \
-            --cpu 0.5 --memory 1.0Gi \
-            --secrets "sb-connection=${{ secrets.SERVICEBUS_CONNECTION_STRING }}" \
-            --env-vars \
-              "SERVICEBUS_CONNECTION_STRING=secretref:sb-connection" \
-              "SERVICEBUS_QUEUE_NAME=order-processing-queue"
+            --query name -o tsv 2>/dev/null || echo "")
 
-      - name: Deployment successfull
-        run: echo "🎉 Deployment succeed!"
-    
+          if [ -z "$JOB_EXISTS" ]; then
+            echo "Creating job..."
+            az containerapp job create \
+              --name job-message-processor \
+              --resource-group rg-eventdriven-demo \
+              --environment cae-eventdriven-demo \
+              --trigger-type Event \
+              --replica-timeout 300 \
+              --replica-retry-limit 3 \
+              --min-executions 0 \
+              --max-executions 10 \
+              --polling-interval 30 \
+              --scale-rule-name "servicebus-scaler" \
+              --scale-rule-type "azure-servicebus" \
+              --scale-rule-metadata "queueName=order-processing-queue" "namespace=sb-eventdriven-demo" "messageCount=5" \
+              --scale-rule-auth "connection=sb-connection" \
+              --image "${{ secrets.ACR_NAME }}.azurecr.io/message-processor:${{ github.sha }}" \
+              --cpu 0.5 --memory 1.0Gi \
+              --secrets "sb-connection=${{ secrets.SERVICEBUS_CONNECTION_STRING }}" \
+              --env-vars \
+                "SERVICEBUS_CONNECTION_STRING=secretref:sb-connection" \
+                "SERVICEBUS_QUEUE_NAME=order-processing-queue"
+          else
+            echo "Updating job..."
+            az containerapp job update \
+              --name job-message-processor \
+              --resource-group rg-eventdriven-demo \
+              --image "${{ secrets.ACR_NAME }}.azurecr.io/message-processor:${{ github.sha }}"
+          fi
+
+      - name: Deployment successful
+        run: echo "🎉 Deployment successful!"
